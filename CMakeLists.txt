@@ -92,6 +92,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 add_subdirectory(src/gui)
 add_subdirectory(src/player)
 add_subdirectory(src/wifi)
+add_subdirectory(src/telemetry)
 
 if (WIN32)
     string(APPEND CMAKE_CXX_FLAGS " /utf-8")

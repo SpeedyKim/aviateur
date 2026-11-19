@@ -3,6 +3,7 @@
 #include <vecgui/scene_tree.h>
 
 #include "gui/control_panel.h"
+#include "gui/glass_theme.h"
 #include "gui/player_rect.h"
 #include "gui_interface.h"
 #include "wifi/wfbng_link.h"
@@ -14,8 +15,8 @@ int main() {
     auto app = std::make_shared<vecgui::App>(vecgui::Vec2I{1280, 720}, GuiInterface::Instance().use_vulkan_);
     app->set_window_title("Aviateur - OpenIPC FPV Ground Station");
 
-    const auto theme =
-        GuiInterface::Instance().dark_mode_ ? vecgui::Theme::default_dark() : vecgui::Theme::default_light();
+    // Everything is drawn over video, so we always use the dark glass theme.
+    const auto theme = glass::make_theme();
 
     auto context = app->get_context();
     context.default_resource->set_default_theme(theme);

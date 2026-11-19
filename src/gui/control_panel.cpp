@@ -2,6 +2,7 @@
 
 #include <vecgui/resources/default_resource.h>
 
+#include "glass_theme.h"
 #include "settings_tab.h"
 
 void ControlPanel::update_dongle_list(const std::shared_ptr<vecgui::MenuButton> &menu_button,
@@ -78,13 +79,8 @@ void ControlPanel::on_ready() {
     const int button_height = 48;
 
     tab_container_ = std::make_shared<vecgui::TabContainer>();
-    tab_container_->theme_override_bg = vecgui::StyleBox::from_empty();
-    auto bg_color = vecgui::ColorU{220, 220, 220, 150};
-    if (GuiInterface::Instance().dark_mode_) {
-        bg_color = vecgui::ColorU{30, 30, 30, 150};
-    }
-    tab_container_->theme_override_bg->bg_color = bg_color;
-    tab_container_->theme_override_bg->corner_radius = 12;
+    // Frosted-glass look (tint + rim, no live blur; see glass_theme.h).
+    tab_container_->theme_override_bg = glass::panel(20, glass::kTintStrong);
     tab_container_->set_tab_width(tab_button_width);
     tab_container_->set_tab_height(button_height);
     tab_container_->set_tab_alignment(vecgui::TabAlignment::Center);
@@ -485,7 +481,7 @@ void ControlPanel::on_ready() {
         tab_container_->add_child(video_tab_);
     }
 
-#ifndef NDEBUG
+    // Local test tab: play an RTP stream from UDP (e.g. tools/send_test_stream.sh) without a radio.
     // Test tab
     {
         auto margin_container = std::make_shared<vecgui::MarginContainer>();
@@ -600,7 +596,6 @@ void ControlPanel::on_ready() {
             grid->add_child(play_port_button_);
         }
     }
-#endif
 
     // Settings tab
     {

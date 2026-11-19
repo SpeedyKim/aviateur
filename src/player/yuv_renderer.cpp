@@ -292,8 +292,14 @@ void YuvRenderer::updateTextureInfo(int width, int height, int format) {
         mTexU = mDevice->create_texture({{width, height}, Pathfinder::TextureFormat::R8}, "u texture");
         mTexV = mDevice->create_texture({{width, height}, Pathfinder::TextureFormat::R8}, "v texture");
     } else {
-        GuiInterface::Instance().PutLog(LogLevel::Error, "YUV pixel format is unsupported!", __FUNCTION__);
-        abort();
+        // Don't crash the whole ground station on an odd stream; just skip drawing it.
+        GuiInterface::Instance().PutLog(LogLevel::Error,
+                                        "YUV pixel format {} is unsupported (expected 4:2:0 or 4:4:4 8-bit)",
+                                        format);
+        mTexY = nullptr; // makes updateTextureData() a no-op for this stream
+        mPixFmtChanged = false;
+        mTextureAllocated = false;
+        return;
     }
 
     mTextureAllocated = true;

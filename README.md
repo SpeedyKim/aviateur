@@ -38,6 +38,32 @@ drone with minimal lag, supporting modern codecs and hardware acceleration.
 
 - **MAVLink**: Basic MAVLink telemetry support is on the roadmap but not yet fully implemented.
 
+## 🧭 On-Screen Display (this fork)
+
+A glass-style OSD is drawn over the video:
+
+- **Always:** link bitrate (plus signal bars and lost packets on the radio link), resolution/fps/decoder, and a
+  blinking REC timer while recording.
+- **With MAVLink telemetry:** artificial horizon, heading, battery (V and %), ground speed, altitude, distance to
+  home, GPS satellites, and ARMED/DISARMED. If telemetry stops for 2 s a red **TELEMETRY LOST** pill appears.
+
+Telemetry is read from **UDP 14550**. On the radio link, the drone's MAVLink channel (wfb-ng radio port `0x10`) is now
+decoded and forwarded there automatically. Because the OSD listens on 14550, run QGroundControl / Mission Planner on a
+different port for now.
+
+The "glass" is a translucent tint with a light rim, not a live blur of the video behind it, so it costs no extra GPU
+pass and adds no latency.
+
+### Test without hardware
+
+```bash
+tools/send_test_stream.sh          # fake H.265 camera -> UDP 5600 (needs GStreamer)
+pip install pymavlink
+python tools/fake_telemetry.py     # fake plane circling Calgary -> UDP 14550
+```
+
+Then open **Local test**, pick **H265**, and press **Start**. Click the video to show/hide the menu.
+
 ## 🚀 Quick Start
 
 ### Windows
