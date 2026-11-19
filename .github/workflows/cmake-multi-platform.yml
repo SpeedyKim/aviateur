@@ -5,6 +5,8 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  # Allows starting a build by hand from the Actions tab.
+  workflow_dispatch:
 
 jobs:
   build:
@@ -98,3 +100,18 @@ jobs:
         # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
         # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
         run: ctest --build-config ${{ matrix.build_type }}
+
+      - name: MAVLink parser test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pip install pymavlink
+          ${{ matrix.cpp_compiler }} -std=c++20 -I. -DMAVLINK_LITE_TEST tools/mavlink_lite_test.cpp src/telemetry/mavlink_lite.cpp -o mltest -lpthread
+          for v in v1 v2; do
+            python3 tools/make_mavlink_fixture.py fixture_$v.bin $v
+            ./mltest fixture_$v.bin | tee out_$v.txt
+            grep -q "armed=1 type=1" out_$v.txt
+            grep -q "roll=0.2500 pitch=-0.1250 yaw=1.5000" out_$v.txt
+            grep -q "volt=15.870 curr=12.50 rem=72" out_$v.txt
+            grep -q "fix=3 sats=14" out_$v.txt
+            grep -q "home=1 dist=300.2" out_$v.txt
+          done
