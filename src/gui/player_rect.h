@@ -3,9 +3,9 @@
 #include <vecgui/app.h>
 
 #include "../player/video_player.h"
+#include "osd.h"
 #include "tip_label.h"
 
-class SignalBar;
 class GstDecoder;
 
 class PlayerRect final : public vecgui::TextureRect {
@@ -31,23 +31,9 @@ public:
 
     std::shared_ptr<vecgui::Timer> rx_status_update_timer;
 
-    std::shared_ptr<vecgui::VBoxContainer> hud_container_;
+    std::shared_ptr<Osd> osd_;
 
-    std::shared_ptr<vecgui::Label> record_status_label_;
-
-    std::shared_ptr<vecgui::Label> bitrate_label_;
-
-    std::shared_ptr<vecgui::Label> decoder_label_;
-
-    std::shared_ptr<vecgui::Label> pl_label_;
-
-    std::shared_ptr<vecgui::Label> fec_label_;
-
-    std::vector<std::shared_ptr<SignalBar>> link_score_bars_;
-
-    std::shared_ptr<vecgui::Label> video_info_label_;
-
-    std::shared_ptr<vecgui::Label> render_fps_label_;
+    std::weak_ptr<vecgui::Node> control_panel_;
 
     std::shared_ptr<vecgui::Button> video_stabilization_button_;
     std::shared_ptr<vecgui::Button> low_light_enhancement_button_;

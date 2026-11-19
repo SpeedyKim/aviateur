@@ -696,6 +696,11 @@ void WfbngLink::handle_80211_frame(const Packet &packet) {
             std::make_unique<AggregatorX>(client_addr, udp_client_port, key_path, epoch, udp_channel_id_f, 0);
     }
 
+    if (!mavlink_aggregator) {
+        mavlink_aggregator = std::make_unique<AggregatorX>(
+            client_addr, mavlink_client_port, key_path, epoch, mavlink_channel_id_f, 0);
+    }
+
     static int8_t rssi[2] = {1, 1};
     static uint8_t antenna[4] = {1, 1, 1, 1};
     uint32_t freq = 0;
@@ -734,7 +739,19 @@ void WfbngLink::handle_80211_frame(const Packet &packet) {
     }
     // MAVLink frame
     else if (frame.MatchesChannelID(mavlink_channel_id_be8)) {
-        // GuiInterface::Instance().PutLog(LogLevel::Warn, "Received a MAVLink frame, but we're unable to handle it!");
+        // Same FEC + decryption as video; the aggregator sends the recovered MAVLink bytes to UDP 14550,
+        // where the OSD's TelemetryHub (and any other ground station) can pick them up.
+        mavlink_aggregator->process_packet(packet.Data.data() + sizeof(ieee80211_header),
+                                           packet.Data.size() - sizeof(ieee80211_header) - 4,
+                                           0,
+                                           antenna,
+                                           rssi,
+                                           noise,
+                                           freq,
+                                           0,
+                                           0,
+                                           NULL);
+        mavlink_aggregator->clear_stats();
     }
     // UDP frame
     else if (frame.MatchesChannelID(udp_channel_id_be8)) {
@@ -769,6 +786,7 @@ void WfbngLink::stop() {
         std::lock_guard lock(agg_mutex);
         video_aggregator.reset();
         udp_aggregator.reset();
+        mavlink_aggregator.reset();
     }
 }
 

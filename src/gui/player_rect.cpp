@@ -2,43 +2,19 @@
 
 #include "../gui_interface.h"
 #include "control_panel.h"
+#include "glass_theme.h"
 #include "src/player/ffmpeg/video_player.h"
 
-constexpr uint32_t HUD_LABEL_FONT_SIZE = 20;
-
-class SignalBar : public vecgui::ProgressBar {
-    void on_ready() override {
-        theme_fg = {};
-        theme_bg = {};
-
-        theme_progress->corner_radius = 0;
-        theme_progress->border_color = vecgui::ColorU::white();
-        theme_progress->border_width = 1;
-
-        set_lerp_enabled(true);
-        set_label_visibility(false);
-    }
-
-    void on_update(double dt) override {
-        if (value < 0.25 * max_value) {
-            theme_progress->bg_color = RED;
-        }
-        if (value >= 0.25 * max_value && value < 0.5 * max_value) {
-            theme_progress->bg_color = YELLOW;
-        }
-        if (value >= 0.5 * max_value) {
-            theme_progress->bg_color = GREEN;
-        }
-    }
-};
+constexpr uint32_t TIP_FONT_SIZE = 20;
 
 void PlayerRect::show_red_tip(std::string tip) {
-    tip_label_->theme_override_bg.value().bg_color = RED;
+    tip_label_->theme_override_bg.value().bg_color = vecgui::ColorU(glass::kRed.r_, glass::kRed.g_, glass::kRed.b_, 190);
     tip_label_->show_tip(tip);
 }
 
 void PlayerRect::show_green_tip(std::string tip) {
-    tip_label_->theme_override_bg.value().bg_color = GREEN;
+    tip_label_->theme_override_bg.value().bg_color =
+        vecgui::ColorU(glass::kGreen.r_ / 2, glass::kGreen.g_ / 2, glass::kGreen.b_ / 2, 200);
     tip_label_->show_tip(tip);
 }
 
@@ -78,10 +54,20 @@ void PlayerRect::on_ready() {
     show_hide_button->theme_override_hovered = vecgui::StyleBox::from_empty();
     show_hide_button->theme_override_pressed = vecgui::StyleBox::from_empty();
 
+    // On-screen display sits above the video but below the control panel. It ignores the mouse,
+    // so clicking anywhere on the video still toggles the control panel.
+    osd_ = std::make_shared<Osd>();
+    osd_->set_anchor_flag(vecgui::AnchorFlag::FullRect);
+    add_child(osd_);
+
+    // MAVLink telemetry for the OSD (from the radio link, or tools/fake_telemetry.py).
+    telemetry::TelemetryHub::instance().start(14550);
+
     auto control_panel = std::make_shared<ControlPanel>();
     control_panel->set_anchor_flag(vecgui::AnchorFlag::Center);
     control_panel->set_custom_minimum_size({640, 400});
     add_child(control_panel);
+    control_panel_ = control_panel;
 
     std::weak_ptr control_panel_weak = control_panel;
 
@@ -120,136 +106,37 @@ void PlayerRect::on_ready() {
     set_stretch_mode(StretchMode::KeepAspectCentered);
 
     tip_label_ = std::make_shared<TipLabel>();
-    tip_label_->set_anchor_flag(vecgui::AnchorFlag::VCenterWide);
     tip_label_->set_visibility(false);
-    tip_label_->set_word_wrap(true);
-    tip_label_->set_font_size(HUD_LABEL_FONT_SIZE);
+    tip_label_->set_word_wrap(false);
+    tip_label_->set_horizontal_alignment(vecgui::Alignment::Center);
+    tip_label_->set_vertical_alignment(vecgui::Alignment::Center);
+    tip_label_->set_mouse_filter(vecgui::MouseFilter::Ignore);
     add_child(tip_label_);
 
-    hud_container_ = std::make_shared<vecgui::VBoxContainer>();
-    add_child(hud_container_);
-    hud_container_->set_anchor_flag(vecgui::AnchorFlag::BottomWide);
-    hud_container_->set_visibility(false);
-    hud_container_->set_separation(2);
+    // Video info for the OSD.
+    auto on_decoder_ready = [this](uint32_t width, uint32_t height, float fps, std::string decoder_name) {
+        osd_->video_text = std::format("{}\u00D7{}  {} fps", width, height, int(round(fps)));
+        osd_->decoder_text = decoder_name;
+    };
+    GuiInterface::Instance().decoderReadyCallbacks.emplace_back(on_decoder_ready);
 
-    {
-        auto lq_container = std::make_shared<vecgui::HBoxContainer>();
-        hud_container_->add_child(lq_container);
-        lq_container->set_separation(2);
-
-        for (int j = 0; j < ANTENNA_COUNT; j++) {
-            auto bar = std::make_shared<SignalBar>();
-            bar->set_value(1500);
-            bar->set_min_value(1000);
-            bar->set_max_value(2000);
-            bar->set_custom_minimum_size({0, 8});
-            bar->container_sizing.flag_h = vecgui::ContainerSizingFlag::Fill;
-            if (j == 0) {
-                bar->set_fill_mode(vecgui::ProgressBar::FillMode::RightToLeft);
-            } else {
-                bar->set_fill_mode(vecgui::ProgressBar::FillMode::LeftToRight);
-            }
-            bar->debug_box = vecgui::StyleBox::simple_outline();
-
-            link_score_bars_.push_back(bar);
-            lq_container->add_child(bar);
-        }
-    }
-
-    auto label_container_ = std::make_shared<vecgui::HBoxContainer>();
-    hud_container_->add_child(label_container_);
-    vecgui::StyleBox box;
-    box.bg_color =
-        GuiInterface::Instance().dark_mode_ ? vecgui::ColorU(27, 27, 27, 100) : vecgui::ColorU(228, 228, 228, 100);
-    box.border_width = 0;
-    box.corner_radius = 0;
-    label_container_->theme_override_bg = box;
-    label_container_->set_separation(16);
-
-    {
-        video_info_label_ = std::make_shared<vecgui::Label>();
-        label_container_->add_child(video_info_label_);
-        video_info_label_->set_text("");
-        video_info_label_->set_font_size(HUD_LABEL_FONT_SIZE);
-        video_info_label_->set_visibility(false);
-
-        auto on_decoder_ready = [this](uint32_t width, uint32_t height, float fps, std::string decoder_name) {
-            std::stringstream ss;
-            ss << width << "x" << height << "@" << int(round(fps));
-            video_info_label_->set_text(ss.str());
-            video_info_label_->set_visibility(true);
-
-            decoder_label_->set_text(get_context()->translation_server->get_translation("decoder") + ": " +
-                                     decoder_name);
-            decoder_label_->set_font_size(HUD_LABEL_FONT_SIZE);
-            decoder_label_->set_visibility(true);
-        };
-        GuiInterface::Instance().decoderReadyCallbacks.emplace_back(on_decoder_ready);
-    }
-
-    bitrate_label_ = std::make_shared<vecgui::Label>();
-    label_container_->add_child(bitrate_label_);
-    bitrate_label_->set_font_size(HUD_LABEL_FONT_SIZE);
-    bitrate_label_->set_visibility(false);
-
-    render_fps_label_ = std::make_shared<vecgui::Label>();
-    label_container_->add_child(render_fps_label_);
-    render_fps_label_->set_font_size(HUD_LABEL_FONT_SIZE);
-
-    decoder_label_ = std::make_shared<vecgui::Label>();
-    label_container_->add_child(decoder_label_);
-    decoder_label_->set_font_size(HUD_LABEL_FONT_SIZE);
-    decoder_label_->set_visibility(false);
-
-    pl_label_ = std::make_shared<vecgui::Label>();
-    label_container_->add_child(pl_label_);
-    pl_label_->set_font_size(HUD_LABEL_FONT_SIZE);
-    fec_label_ = std::make_shared<vecgui::Label>();
-    label_container_->add_child(fec_label_);
-    fec_label_->set_font_size(HUD_LABEL_FONT_SIZE);
-
+    // Link stats for the OSD, 10x per second.
     rx_status_update_timer = std::make_shared<vecgui::Timer>();
     add_child(rx_status_update_timer);
 
     auto callback = [this] {
+        osd_->using_wifi = GuiInterface::Instance().is_using_wifi;
         if (GuiInterface::Instance().link_) {
             auto link_score = GuiInterface::Instance().link_->get_link_score();
-
-            for (int j = 0; j != ANTENNA_COUNT; ++j) {
-                link_score_bars_[j]->set_value(link_score[j]);
+            for (int j = 0; j < 2 && j < ANTENNA_COUNT; ++j) {
+                osd_->link_score[j] = link_score[j];
             }
+            osd_->packet_loss = GuiInterface::Instance().link_->get_packet_loss();
         }
-
-        if (GuiInterface::Instance().is_using_wifi) {
-            pl_label_->set_visibility(true);
-            fec_label_->set_visibility(false);
-
-            int min_loss = std::numeric_limits<int>::max();
-            if (GuiInterface::Instance().link_) {
-                min_loss = std::min(min_loss, GuiInterface::Instance().link_->get_packet_loss());
-            }
-            pl_label_->set_text(get_context()->translation_server->get_translation("packet loss") + ": " +
-                                std::to_string(min_loss));
-
-            if (GuiInterface::Instance().alink_enabled_) {
-                fec_label_->set_visibility(true);
-                fec_label_->set_text("FEC: " + std::to_string(GuiInterface::Instance().drone_fec_level_));
-            }
-        } else {
-            pl_label_->set_visibility(false);
-            fec_label_->set_visibility(false);
-        }
-
         rx_status_update_timer->start_timer(0.1);
     };
     rx_status_update_timer->connect_signal("timeout", callback);
     rx_status_update_timer->start_timer(0.1);
-
-    record_status_label_ = std::make_shared<vecgui::Label>();
-    label_container_->add_child(record_status_label_);
-    record_status_label_->container_sizing.flag_h = vecgui::ContainerSizingFlag::ShrinkEnd;
-    record_status_label_->set_text("");
-    record_status_label_->set_font_size(HUD_LABEL_FONT_SIZE);
 
     auto capture_button = std::make_shared<vecgui::Button>();
     capture_button->set_custom_minimum_size({0, button_height});
@@ -290,10 +177,7 @@ void PlayerRect::on_ready() {
                 record_button_raw->set_text(context->translation_server->get_translation("stop recording") + " (F10)");
 
                 record_start_time = std::chrono::steady_clock::now();
-
-                record_status_label_->set_text(context->translation_server->get_translation("recording") + ": 00:00");
             } else {
-                record_status_label_->set_text("");
                 show_red_tip(context->translation_server->get_translation("record fail"));
             }
         } else {
@@ -302,7 +186,6 @@ void PlayerRect::on_ready() {
             auto output_file = player_->stop_mp4_recording();
 
             record_button_raw->set_text(context->translation_server->get_translation("record mp4") + " (F10)");
-            record_status_label_->set_text("");
 
             if (output_file.empty()) {
                 show_red_tip(context->translation_server->get_translation("save record fail"));
@@ -364,19 +247,7 @@ void PlayerRect::on_ready() {
     //     low_light_enhancement_button_->connect_signal("toggled", callback);
     // }
 
-    auto onBitrateUpdate = [this](uint64_t bitrate) {
-        auto context = this->get_context();
-        std::string text = context->translation_server->get_translation("bitrate") + ": ";
-        if (bitrate > 1024 * 1024) {
-            text += std::format("{:.1f}", bitrate / 1024.0 / 1024.0) + " Mbps";
-        } else if (bitrate > 1024) {
-            text += std::format("{:.1f}", bitrate / 1024.0) + " Kbps";
-        } else {
-            text += std::format("{:d}", bitrate) + " bps";
-        }
-        bitrate_label_->set_text(text);
-        bitrate_label_->show();
-    };
+    auto onBitrateUpdate = [this](uint64_t bitrate) { osd_->bitrate_bps = bitrate; };
     GuiInterface::Instance().bitrateUpdateCallbacks.emplace_back(onBitrateUpdate);
 
     auto onTipUpdate = [this](std::string msg, bool bad_news) {
@@ -427,26 +298,24 @@ void PlayerRect::on_update(double dt) {
         }
     }
 
-    render_fps_label_->set_text(context->translation_server->get_translation("render fps") + ": " +
-                                std::to_string(context->engine->get_fps_int()));
-
+    osd_->playing = playing_;
+    osd_->render_fps = context->engine->get_fps_int();
+    osd_->recording = is_recording;
     if (is_recording) {
         std::chrono::duration<double> duration = std::chrono::steady_clock::now() - record_start_time;
+        osd_->recording_seconds = int(duration.count());
+    }
 
-        int total_seconds = duration.count();
-        int hours = total_seconds / 3600;
-        int minutes = (total_seconds % 3600) / 60;
-        int seconds = total_seconds % 60;
-
-        std::ostringstream ss;
-        ss << context->translation_server->get_translation("recording") << ": ";
-        if (hours > 0) {
-            ss << hours << ":";
-        }
-        ss << std::setw(2) << std::setfill('0') << minutes << ":";
-        ss << std::setw(2) << std::setfill('0') << seconds;
-
-        record_status_label_->set_text(ss.str());
+    // Toast messages: a glass pill near the top centre.
+    if (tip_label_->get_visibility()) {
+        const float s = std::clamp(get_size().y / 720.f, 0.6f, 2.5f);
+        tip_label_->set_font_size(uint32_t(TIP_FONT_SIZE * s));
+        auto text_size = tip_label_->get_effective_minimum_size();
+        vecgui::Vec2F box = {text_size.x + 36.f * s, text_size.y + 16.f * s};
+        box.x = std::min(box.x, get_size().x - 32.f * s);
+        tip_label_->set_size(box);
+        tip_label_->set_position({(get_size().x - box.x) * 0.5f, 64.f * s});
+        tip_label_->theme_override_bg->corner_radius = box.y * 0.5f;
     }
 }
 
@@ -483,7 +352,10 @@ void PlayerRect::start_playing(const std::string &url) {
 
     texture = render_image_;
 
-    hud_container_->set_visibility(true);
+    // Get the menus out of the way once video starts; click the video to bring them back.
+    if (auto panel = control_panel_.lock()) {
+        panel->set_visibility(false);
+    }
 }
 
 void PlayerRect::stop_playing() {
@@ -493,9 +365,10 @@ void PlayerRect::stop_playing() {
     play_url_ = "";
     play_mutex_.unlock();
 
-    for (const auto &bar : link_score_bars_) {
-        bar->set_value(0);
-    }
+    osd_->link_score = {};
+    osd_->video_text.clear();
+    osd_->decoder_text.clear();
+    osd_->bitrate_bps = 0;
 
     if (is_recording) {
         record_button_->trigger();
@@ -507,5 +380,8 @@ void PlayerRect::stop_playing() {
     }
 
     texture = logo_;
-    hud_container_->set_visibility(false);
+
+    if (auto panel = control_panel_.lock()) {
+        panel->set_visibility(true);
+    }
 }

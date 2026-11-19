@@ -108,6 +108,8 @@ protected:
 
     std::unique_ptr<AggregatorX> video_aggregator;
     std::unique_ptr<AggregatorX> udp_aggregator;
+    // Decodes the drone's MAVLink telemetry channel and forwards it to 127.0.0.1:14550 (OSD listener).
+    std::unique_ptr<AggregatorX> mavlink_aggregator;
 
     std::shared_ptr<SignalQualityCalculator> signal_quality_calculator;
     std::array<int, ANTENNA_COUNT> link_score_ = {}; // Percentage
